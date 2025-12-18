@@ -2,6 +2,7 @@ import sys
 import subprocess
 import threading
 import io
+import os
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit, QPushButton
 from gtts import gTTS
 import pygame
@@ -11,7 +12,7 @@ class AccessibleGitTerminal(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Přístupný Git terminál")
-        self.resize(700, 450)
+        self.resize(700, 500)
 
         # Layout a widgety
         self.layout = QVBoxLayout()
@@ -38,6 +39,9 @@ class AccessibleGitTerminal(QWidget):
         self.history = []
         self.history_index = -1
         self.input.keyPressEvent = self.custom_keypress
+
+        # Ukázat startovní adresář
+        self.output.appendPlainText(f"Startovní adresář: {os.getcwd()}")
 
     # Přepínání světlého/tmavého režimu
     def toggle_theme(self):
@@ -97,6 +101,18 @@ class AccessibleGitTerminal(QWidget):
     def run_command(self):
         cmd = self.input.text()
         if not cmd.strip():
+            return
+
+        # Speciální příkaz: cd
+        if cmd.lower().startswith("cd "):
+            path = cmd[3:].strip().replace('"', '')
+            try:
+                os.chdir(path)
+                self.output.appendPlainText(f"Nový aktuální adresář: {os.getcwd()}")
+            except Exception as e:
+                self.output.appendPlainText(f"CHYBA při změně adresáře: {e}")
+            self.input.clear()
+            self.input.setFocus()
             return
 
         self.output.appendPlainText(f"> {cmd}")
