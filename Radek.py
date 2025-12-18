@@ -3,10 +3,13 @@ import subprocess
 import threading
 import io
 import os
+import json
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit, QPushButton
 from gtts import gTTS
 import pygame
 from langdetect import detect
+
+CONFIG_FILE = "terminal_config.json"
 
 class AccessibleGitTerminal(QWidget):
     def __init__(self):
@@ -22,67 +25,80 @@ class AccessibleGitTerminal(QWidget):
         self.input.returnPressed.connect(self.run_command)
 
         # Tlačítko pro přepínání světlého/tmavého režimu
-        self.toggle_btn = QPushButton("Tmavý režim")
+        self.toggle_btn = QPushButton()
         self.toggle_btn.clicked.connect(self.toggle_theme)
-        self.dark_mode = False
 
         self.layout.addWidget(self.toggle_btn)
         self.layout.addWidget(self.output)
         self.layout.addWidget(self.input)
         self.setLayout(self.layout)
 
-        # Dát focus hned po spuštění
-        self.input.setFocus()
-
-        # Inicializace hlasu
+        # Hlas
         pygame.mixer.init()
         self.history = []
         self.history_index = -1
         self.input.keyPressEvent = self.custom_keypress
 
-        # Ukázat startovní adresář
+        # Startovní adresář
         self.output.appendPlainText(f"Startovní adresář: {os.getcwd()}")
 
-    # Přepínání světlého/tmavého režimu
+        # Načíst téma z configu
+        self.load_theme()
+
+        # Focus
+        self.input.setFocus()
+
+    # ---- TÉMA ----
+    def apply_dark_theme(self):
+        self.setStyleSheet("""
+            QWidget {background-color: #2b2b2b; color: #f0f0f0;}
+            QLineEdit, QPlainTextEdit {background-color: #2b2b2b; color: #f0f0f0;}
+            QPushButton {background-color: #444; color: #f0f0f0;}
+        """)
+        self.toggle_btn.setText("Světlý režim")
+
+    def apply_light_theme(self):
+        self.setStyleSheet("""
+            QWidget {background-color: white; color: black;}
+            QLineEdit, QPlainTextEdit {background-color: white; color: black;}
+            QPushButton {background-color: lightgray; color: black;}
+        """)
+        self.toggle_btn.setText("Tmavý režim")
+
     def toggle_theme(self):
         if self.dark_mode:
-            # Světlý režim
-            self.setStyleSheet("""
-                QWidget {
-                    background-color: white;
-                    color: black;
-                }
-                QLineEdit, QPlainTextEdit {
-                    background-color: white;
-                    color: black;
-                }
-                QPushButton {
-                    background-color: lightgray;
-                    color: black;
-                }
-            """)
-            self.toggle_btn.setText("Tmavý režim")
             self.dark_mode = False
+            self.apply_light_theme()
         else:
-            # Tmavý režim
-            self.setStyleSheet("""
-                QWidget {
-                    background-color: #2b2b2b;
-                    color: #f0f0f0;
-                }
-                QLineEdit, QPlainTextEdit {
-                    background-color: #2b2b2b;
-                    color: #f0f0f0;
-                }
-                QPushButton {
-                    background-color: #444;
-                    color: #f0f0f0;
-                }
-            """)
-            self.toggle_btn.setText("Světlý režim")
             self.dark_mode = True
+            self.apply_dark_theme()
+        self.save_theme()
 
-    # Hlasový výstup s detekcí jazyka
+    def save_theme(self):
+        data = {"theme": "dark" if self.dark_mode else "light"}
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def load_theme(self):
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    theme = data.get("theme", "light")
+                    if theme == "dark":
+                        self.dark_mode = True
+                        self.apply_dark_theme()
+                    else:
+                        self.dark_mode = False
+                        self.apply_light_theme()
+            except:
+                self.dark_mode = False
+                self.apply_light_theme()
+        else:
+            self.dark_mode = False
+            self.apply_light_theme()
+
+    # ---- HLAS ----
     def speak(self, text):
         try:
             lang = detect(text)
@@ -97,13 +113,13 @@ class AccessibleGitTerminal(QWidget):
         while pygame.mixer.music.get_busy():
             pygame.time.Clock().tick(10)
 
-    # Spuštění příkazu
+    # ---- PŘÍKAZY ----
     def run_command(self):
         cmd = self.input.text()
         if not cmd.strip():
             return
 
-        # Speciální příkaz: cd
+        # cd
         if cmd.lower().startswith("cd "):
             path = cmd[3:].strip().replace('"', '')
             try:
@@ -129,19 +145,16 @@ class AccessibleGitTerminal(QWidget):
 
         threading.Thread(target=self.execute_async, args=(cmd,), daemon=True).start()
 
-    # Asynchronní provedení příkazu
     def execute_async(self, cmd):
         try:
             process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
                                        stderr=subprocess.PIPE, text=True, encoding='utf-8')
             stdout, stderr = process.communicate()
 
-            # Výstup z příkazu
             if stdout:
                 self.output.appendPlainText(stdout)
                 threading.Thread(target=self.speak, args=(stdout,), daemon=True).start()
 
-            # Chyby – jen pokud skutečně obsahují fatal/error
             if stderr:
                 for line in stderr.splitlines():
                     if "fatal" in line.lower() or "error" in line.lower():
@@ -155,7 +168,7 @@ class AccessibleGitTerminal(QWidget):
             self.output.appendPlainText(f"Výjimka: {e}")
             threading.Thread(target=self.speak, args=(str(e),), daemon=True).start()
 
-    # Historie příkazů (šipky nahoru/dolů)
+    # ---- HISTORIE ----
     def custom_keypress(self, event):
         key = event.key()
         from PyQt6.QtCore import Qt
