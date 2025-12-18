@@ -1,23 +1,29 @@
 import sys
 import subprocess
+import threading
+import io
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit, QPushButton
+from gtts import gTTS
+import pygame
+from langdetect import detect
 
-class MyTerminal(QWidget):
+class AccessibleGitTerminal(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Přístupná příkazovka")
-        self.resize(600, 400)
+        self.setWindowTitle("Přístupný Git terminál")
+        self.resize(700, 450)
 
+        # Layout a widgety
         self.layout = QVBoxLayout()
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
         self.input = QLineEdit()
         self.input.returnPressed.connect(self.run_command)
 
-        # Tlačítko pro přepínání režimu
+        # Tlačítko pro přepínání světlého/tmavého režimu
         self.toggle_btn = QPushButton("Tmavý režim")
         self.toggle_btn.clicked.connect(self.toggle_theme)
-        self.dark_mode = False  # výchozí světlý
+        self.dark_mode = False
 
         self.layout.addWidget(self.toggle_btn)
         self.layout.addWidget(self.output)
@@ -27,6 +33,13 @@ class MyTerminal(QWidget):
         # Dát focus hned po spuštění
         self.input.setFocus()
 
+        # Inicializace hlasu
+        pygame.mixer.init()
+        self.history = []
+        self.history_index = -1
+        self.input.keyPressEvent = self.custom_keypress
+
+    # Přepínání světlého/tmavého režimu
     def toggle_theme(self):
         if self.dark_mode:
             # Světlý režim
@@ -65,33 +78,87 @@ class MyTerminal(QWidget):
             self.toggle_btn.setText("Světlý režim")
             self.dark_mode = True
 
+    # Hlasový výstup s detekcí jazyka
+    def speak(self, text):
+        try:
+            lang = detect(text)
+        except:
+            lang = 'cs'
+        tts = gTTS(text=text, lang=lang)
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        pygame.mixer.music.load(fp, 'mp3')
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy():
+            pygame.time.Clock().tick(10)
+
+    # Spuštění příkazu
     def run_command(self):
         cmd = self.input.text()
         if not cmd.strip():
             return
 
         self.output.appendPlainText(f"> {cmd}")
+        self.history.append(cmd)
+        self.history_index = len(self.history)
         self.input.clear()
-        self.input.setFocus()  # zpět focus
+        self.input.setFocus()
 
         if cmd.lower() == "exit":
             self.output.appendPlainText("Ukončuji terminál...")
+            threading.Thread(target=self.speak, args=("Ukončuji terminál",), daemon=True).start()
             QApplication.quit()
             return
 
+        threading.Thread(target=self.execute_async, args=(cmd,), daemon=True).start()
+
+    # Asynchronní provedení příkazu
+    def execute_async(self, cmd):
         try:
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            output_text = result.stdout
-            error_text = result.stderr
-            if output_text:
-                self.output.appendPlainText(output_text)
-            if error_text:
-                self.output.appendPlainText(f"CHYBA: {error_text}")
+            process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, text=True, encoding='utf-8')
+            stdout, stderr = process.communicate()
+
+            # Výstup z příkazu
+            if stdout:
+                self.output.appendPlainText(stdout)
+                threading.Thread(target=self.speak, args=(stdout,), daemon=True).start()
+
+            # Chyby – jen pokud skutečně obsahují fatal/error
+            if stderr:
+                for line in stderr.splitlines():
+                    if "fatal" in line.lower() or "error" in line.lower():
+                        self.output.appendPlainText(f"CHYBA: {line}")
+                        threading.Thread(target=self.speak, args=(f"CHYBA: {line}",), daemon=True).start()
+                    else:
+                        self.output.appendPlainText(line)
+                        threading.Thread(target=self.speak, args=(line,), daemon=True).start()
+
         except Exception as e:
             self.output.appendPlainText(f"Výjimka: {e}")
+            threading.Thread(target=self.speak, args=(str(e),), daemon=True).start()
+
+    # Historie příkazů (šipky nahoru/dolů)
+    def custom_keypress(self, event):
+        key = event.key()
+        from PyQt6.QtCore import Qt
+        if key == Qt.Key.Key_Up:
+            if self.history and self.history_index > 0:
+                self.history_index -= 1
+                self.input.setText(self.history[self.history_index])
+        elif key == Qt.Key.Key_Down:
+            if self.history and self.history_index < len(self.history) - 1:
+                self.history_index += 1
+                self.input.setText(self.history[self.history_index])
+            else:
+                self.history_index = len(self.history)
+                self.input.clear()
+        else:
+            QLineEdit.keyPressEvent(self.input, event)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    term = MyTerminal()
+    term = AccessibleGitTerminal()
     term.show()
     sys.exit(app.exec())
