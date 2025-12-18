@@ -1,4 +1,5 @@
 import sys
+import subprocess
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit
 
 class MyTerminal(QWidget):
@@ -20,18 +21,24 @@ class MyTerminal(QWidget):
     def run_command(self):
         cmd = self.input.text()
         self.output.appendPlainText(f"> {cmd}")
-        # jednoduchá simulace příkazu
-        if cmd.lower() == "ahoj":
-            self.output.appendPlainText("Ahoj, kámo!")
-        elif cmd.lower() == "help":
-            self.output.appendPlainText("Dostupné příkazy: ahoj, help, exit")
-        elif cmd.lower() == "exit":
+        self.input.clear()
+
+        if cmd.lower() == "exit":
             self.output.appendPlainText("Ukončuji terminál...")
             QApplication.quit()
-        else:
-            self.output.appendPlainText(f"Nerozumím příkazu: {cmd}")
+            return
 
-        self.input.clear()
+        # Spuštění příkazu přes CMD / PowerShell
+        try:
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            output_text = result.stdout
+            error_text = result.stderr
+            if output_text:
+                self.output.appendPlainText(output_text)
+            if error_text:
+                self.output.appendPlainText(f"CHYBA: {error_text}")
+        except Exception as e:
+            self.output.appendPlainText(f"Výjimka: {e}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
