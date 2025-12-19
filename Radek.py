@@ -4,7 +4,7 @@ import threading
 import io
 import os
 import json
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit, QPushButton
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit, QPushButton, QInputDialog
 from PyQt6.QtCore import Qt
 from gtts import gTTS
 import pygame
@@ -41,12 +41,15 @@ class FriendlyTerminal(QWidget):
         self.history_index = -1
         self.input.keyPressEvent = self.custom_keypress
 
-        # Startovní adresář
-        self.output.appendPlainText(f"Čau! Jsem tvůj přístupný terminál. Začínáme v: {os.getcwd()}")
-        threading.Thread(target=self.speak, args=(f"Čau! Jsem tvůj přístupný terminál. Začínáme v: {os.getcwd()}",), daemon=True).start()
-
         # Načíst téma z configu
         self.load_theme()
+
+        # Načíst nebo zadat jméno uživatele
+        self.load_user_name()
+
+        # Startovní adresář
+        self.output.appendPlainText(f"Čau! Jsem tvůj přístupný terminál, {self.user_name}. Začínáme v: {os.getcwd()}")
+        threading.Thread(target=self.speak, args=(f"Čau! Jsem tvůj přístupný terminál, {self.user_name}. Začínáme v: {os.getcwd()}",), daemon=True).start()
 
         # Focus
         self.input.setFocus()
@@ -82,7 +85,7 @@ class FriendlyTerminal(QWidget):
         self.save_theme()
 
     def save_theme(self):
-        data = {"theme": "dark" if self.dark_mode else "light"}
+        data = {"theme": "dark" if self.dark_mode else "light", "user_name": getattr(self, "user_name", "")}
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -105,6 +108,39 @@ class FriendlyTerminal(QWidget):
             self.dark_mode = False
             self.apply_light_theme()
 
+    # ---- JMÉNO UŽIVATELE ----
+    def load_user_name(self):
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.user_name = data.get("user_name", "")
+            except:
+                self.user_name = ""
+        else:
+            self.user_name = ""
+
+        if not self.user_name:
+            name, ok = QInputDialog.getText(self, "Jméno uživatele", "Jak ti mám říkat?")
+            if ok and name.strip():
+                self.user_name = name.strip()
+                self.save_user_name()
+            else:
+                self.user_name = "kámo"
+
+    def save_user_name(self):
+        # Načteme existující config
+        config = {}
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+            except:
+                pass
+        config["user_name"] = self.user_name
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+
     # ---- HLAS ----
     def speak(self, text):
         try:
@@ -125,15 +161,26 @@ class FriendlyTerminal(QWidget):
         if not cmd:
             return
 
-        # Přátelské reakce na pozdravy
-        if cmd.lower() in ["ahoj", "čau"]:
-            self.output.appendPlainText("Ahoj kámo! 😎 Jak se máš?")
-            threading.Thread(target=self.speak, args=("Ahoj kámo! Jak se máš?",), daemon=True).start()
+        lower_cmd = cmd.lower()
+        greetings = ["ahoj", "čau", "čauky", "nazdar"]
+        how_are_you = ["jak se máš", "co je nového", "jak to jde"]
+
+        # --- PŘÁTELSKÉ REAKCE ---
+        if lower_cmd in greetings:
+            self.output.appendPlainText(f"Ahoj {self.user_name}! 😎 Jak se máš?")
+            threading.Thread(target=self.speak, args=(f"Ahoj {self.user_name}! Jak se máš?",), daemon=True).start()
             self.input.clear()
             return
 
+        for phrase in how_are_you:
+            if phrase in lower_cmd:
+                self.output.appendPlainText(f"Mám se fajn, díky {self.user_name}! 😄 A ty?")
+                threading.Thread(target=self.speak, args=(f"Mám se fajn, díky {self.user_name}! A ty?",), daemon=True).start()
+                self.input.clear()
+                return
+
         # Přepnutí jazyka TTS
-        if cmd.lower().startswith("lang "):
+        if lower_cmd.startswith("lang "):
             new_lang = cmd[5:].strip()
             self.tts_lang = new_lang
             self.output.appendPlainText(f"Jazyk TTS nastaven na: {self.tts_lang}")
@@ -141,7 +188,7 @@ class FriendlyTerminal(QWidget):
             return
 
         # cd + doplňování složek
-        if cmd.lower().startswith("cd "):
+        if lower_cmd.startswith("cd "):
             path = cmd[3:].strip().replace('"', '')
             try:
                 os.chdir(path)
@@ -153,12 +200,13 @@ class FriendlyTerminal(QWidget):
             self.input.clear()
             return
 
+        # --- Základní příkaz ---
         self.output.appendPlainText(f"> {cmd}")
         self.history.append(cmd)
         self.history_index = len(self.history)
         self.input.clear()
 
-        if cmd.lower() == "exit":
+        if lower_cmd == "exit":
             self.output.appendPlainText("Ukončuji terminál… měj se fajn! 👋")
             threading.Thread(target=self.speak, args=("Ukončuji terminál, měj se fajn!",), daemon=True).start()
             QApplication.quit()
@@ -240,6 +288,7 @@ class FriendlyTerminal(QWidget):
                     pass
         else:
             QLineEdit.keyPressEvent(self.input, event)
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
