@@ -11,10 +11,10 @@ import pygame
 
 CONFIG_FILE = "terminal_config.json"
 
-class AccessibleGitTerminal(QWidget):
+class FriendlyTerminal(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Přístupný Git terminál")
+        self.setWindowTitle("Přístupný a lidský terminál")
         self.resize(700, 500)
 
         # Layout a widgety
@@ -24,7 +24,6 @@ class AccessibleGitTerminal(QWidget):
         self.input = QLineEdit()
         self.input.returnPressed.connect(self.run_command)
 
-        # Tlačítko pro přepínání světlého/tmavého režimu
         self.toggle_btn = QPushButton()
         self.toggle_btn.clicked.connect(self.toggle_theme)
 
@@ -40,7 +39,8 @@ class AccessibleGitTerminal(QWidget):
         self.input.keyPressEvent = self.custom_keypress
 
         # Startovní adresář
-        self.output.appendPlainText(f"Startovní adresář: {os.getcwd()}")
+        self.output.appendPlainText(f"Čau! Jsem tvůj přístupný terminál. Začínáme v: {os.getcwd()}")
+        threading.Thread(target=self.speak, args=(f"Čau! Jsem tvůj přístupný terminál. Začínáme v: {os.getcwd()}",), daemon=True).start()
 
         # Jazyk TTS
         self.tts_lang = "cs"
@@ -121,8 +121,15 @@ class AccessibleGitTerminal(QWidget):
 
     # ---- PŘÍKAZY ----
     def run_command(self):
-        cmd = self.input.text()
-        if not cmd.strip():
+        cmd = self.input.text().strip()
+        if not cmd:
+            return
+
+        # Přátelské reakce na pozdravy
+        if cmd.lower() in ["ahoj", "čau"]:
+            self.output.appendPlainText("Ahoj kámo! 😎 Jak se máš?")
+            threading.Thread(target=self.speak, args=("Ahoj kámo! Jak se máš?",), daemon=True).start()
+            self.input.clear()
             return
 
         # Přepnutí jazyka TTS
@@ -131,7 +138,6 @@ class AccessibleGitTerminal(QWidget):
             self.tts_lang = new_lang
             self.output.appendPlainText(f"Jazyk TTS nastaven na: {self.tts_lang}")
             self.input.clear()
-            self.input.setFocus()
             return
 
         # cd + doplňování složek
@@ -139,22 +145,22 @@ class AccessibleGitTerminal(QWidget):
             path = cmd[3:].strip().replace('"', '')
             try:
                 os.chdir(path)
-                self.output.appendPlainText(f"Nový aktuální adresář: {os.getcwd()}")
+                self.output.appendPlainText(f"Super! Nový aktuální adresář: {os.getcwd()}")
+                threading.Thread(target=self.speak, args=(f"Nový aktuální adresář: {os.getcwd()}",), daemon=True).start()
             except Exception as e:
-                self.output.appendPlainText(f"CHYBA při změně adresáře: {e}")
+                self.output.appendPlainText(f"Ups, složku jsem nenašel 😅 {e}")
+                threading.Thread(target=self.speak, args=(f"Ups, složku jsem nenašel. {e}",), daemon=True).start()
             self.input.clear()
-            self.input.setFocus()
             return
 
         self.output.appendPlainText(f"> {cmd}")
         self.history.append(cmd)
         self.history_index = len(self.history)
         self.input.clear()
-        self.input.setFocus()
 
         if cmd.lower() == "exit":
-            self.output.appendPlainText("Ukončuji terminál...")
-            threading.Thread(target=self.speak, args=("Ukončuji terminál",), daemon=True).start()
+            self.output.appendPlainText("Ukončuji terminál… měj se fajn! 👋")
+            threading.Thread(target=self.speak, args=("Ukončuji terminál, měj se fajn!",), daemon=True).start()
             QApplication.quit()
             return
 
@@ -178,6 +184,14 @@ class AccessibleGitTerminal(QWidget):
                     else:
                         self.output.appendPlainText(line)
                         threading.Thread(target=self.speak, args=(line,), daemon=True).start()
+
+            # Přátelská zpráva při Git commit/push
+            if cmd.startswith("git commit"):
+                self.output.appendPlainText("Skvěle! Commit proběhl v pořádku 💪")
+                threading.Thread(target=self.speak, args=("Commit proběhl v pořádku!",), daemon=True).start()
+            if cmd.startswith("git push"):
+                self.output.appendPlainText("Push probíhá… držíme palce! 🤞")
+                threading.Thread(target=self.speak, args=("Push probíhá, držíme palce!",), daemon=True).start()
 
         except Exception as e:
             self.output.appendPlainText(f"Výjimka: {e}")
@@ -210,17 +224,14 @@ class AccessibleGitTerminal(QWidget):
                     all_dirs = [d for d in os.listdir(dir_to_search) if os.path.isdir(os.path.join(dir_to_search, d))]
                     matching_dirs = [d for d in all_dirs if d.startswith(prefix)]
                     if matching_dirs:
-                        # Reset index pokud je nový text
                         if getattr(self, 'last_tab_text', '') != partial:
                             self.tab_index = 0
 
                         if modifiers & Qt.KeyboardModifier.ShiftModifier:
-                            # Shift+Tab = zpět
                             self.tab_index = (self.tab_index - 1) % len(matching_dirs)
 
                         self.input.setText(f"cd {os.path.join(dir_to_search, matching_dirs[self.tab_index])}")
 
-                        # Posun indexu pro normální Tab
                         if not (modifiers & Qt.KeyboardModifier.ShiftModifier):
                             self.tab_index = (self.tab_index + 1) % len(matching_dirs)
 
@@ -232,6 +243,6 @@ class AccessibleGitTerminal(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    term = AccessibleGitTerminal()
+    term = FriendlyTerminal()
     term.show()
     sys.exit(app.exec())
