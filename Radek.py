@@ -52,8 +52,8 @@ class AccessibleGitTerminal(QWidget):
         self.input.setFocus()
 
         # Pro doplňování složek
-        self.tab_suggestions = []
         self.tab_index = 0
+        self.last_tab_text = ""
 
     # ---- TÉMA ----
     def apply_dark_theme(self):
@@ -107,19 +107,17 @@ class AccessibleGitTerminal(QWidget):
 
     # ---- HLAS ----
     def speak(self, text):
-        from langdetect import detect
         try:
-            lang = detect(text)
-        except:
-            lang = self.tts_lang
-        tts = gTTS(text=text, lang=self.tts_lang)
-        fp = io.BytesIO()
-        tts.write_to_fp(fp)
-        fp.seek(0)
-        pygame.mixer.music.load(fp, 'mp3')
-        pygame.mixer.music.play()
-        while pygame.mixer.music.get_busy():
-            pygame.time.Clock().tick(10)
+            tts = gTTS(text=text, lang=self.tts_lang)
+            fp = io.BytesIO()
+            tts.write_to_fp(fp)
+            fp.seek(0)
+            pygame.mixer.music.load(fp, 'mp3')
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                pygame.time.Clock().tick(10)
+        except Exception as e:
+            self.output.appendPlainText(f"CHYBA HLASU: {e}")
 
     # ---- PŘÍKAZY ----
     def run_command(self):
@@ -188,6 +186,8 @@ class AccessibleGitTerminal(QWidget):
     # ---- HISTORIE A TAB ----
     def custom_keypress(self, event):
         key = event.key()
+        modifiers = event.modifiers()
+
         if key == Qt.Key.Key_Up:
             if self.history and self.history_index > 0:
                 self.history_index -= 1
@@ -203,12 +203,28 @@ class AccessibleGitTerminal(QWidget):
             text = self.input.text()
             if text.lower().startswith("cd "):
                 partial = text[3:].strip()
-                # pokud je prázdné, použij aktuální adresář
-                dir_to_search = partial if partial else os.getcwd()
+                dir_to_search = os.path.dirname(partial) if os.path.dirname(partial) else os.getcwd()
+                prefix = os.path.basename(partial)
+
                 try:
-                    dirs = [d for d in os.listdir(dir_to_search) if os.path.isdir(os.path.join(dir_to_search, d))]
-                    if dirs:
-                        self.input.setText(f"cd {dirs[0]}")
+                    all_dirs = [d for d in os.listdir(dir_to_search) if os.path.isdir(os.path.join(dir_to_search, d))]
+                    matching_dirs = [d for d in all_dirs if d.startswith(prefix)]
+                    if matching_dirs:
+                        # Reset index pokud je nový text
+                        if getattr(self, 'last_tab_text', '') != partial:
+                            self.tab_index = 0
+
+                        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+                            # Shift+Tab = zpět
+                            self.tab_index = (self.tab_index - 1) % len(matching_dirs)
+
+                        self.input.setText(f"cd {os.path.join(dir_to_search, matching_dirs[self.tab_index])}")
+
+                        # Posun indexu pro normální Tab
+                        if not (modifiers & Qt.KeyboardModifier.ShiftModifier):
+                            self.tab_index = (self.tab_index + 1) % len(matching_dirs)
+
+                        self.last_tab_text = partial
                 except:
                     pass
         else:
