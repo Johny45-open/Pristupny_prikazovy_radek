@@ -5,9 +5,9 @@ import io
 import os
 import json
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit, QPushButton
+from PyQt6.QtCore import Qt
 from gtts import gTTS
 import pygame
-from langdetect import detect
 
 CONFIG_FILE = "terminal_config.json"
 
@@ -42,11 +42,18 @@ class AccessibleGitTerminal(QWidget):
         # Startovní adresář
         self.output.appendPlainText(f"Startovní adresář: {os.getcwd()}")
 
+        # Jazyk TTS
+        self.tts_lang = "cs"
+
         # Načíst téma z configu
         self.load_theme()
 
         # Focus
         self.input.setFocus()
+
+        # Pro doplňování složek
+        self.tab_suggestions = []
+        self.tab_index = 0
 
     # ---- TÉMA ----
     def apply_dark_theme(self):
@@ -100,11 +107,12 @@ class AccessibleGitTerminal(QWidget):
 
     # ---- HLAS ----
     def speak(self, text):
+        from langdetect import detect
         try:
             lang = detect(text)
         except:
-            lang = 'cs'
-        tts = gTTS(text=text, lang=lang)
+            lang = self.tts_lang
+        tts = gTTS(text=text, lang=self.tts_lang)
         fp = io.BytesIO()
         tts.write_to_fp(fp)
         fp.seek(0)
@@ -119,7 +127,16 @@ class AccessibleGitTerminal(QWidget):
         if not cmd.strip():
             return
 
-        # cd
+        # Přepnutí jazyka TTS
+        if cmd.lower().startswith("lang "):
+            new_lang = cmd[5:].strip()
+            self.tts_lang = new_lang
+            self.output.appendPlainText(f"Jazyk TTS nastaven na: {self.tts_lang}")
+            self.input.clear()
+            self.input.setFocus()
+            return
+
+        # cd + doplňování složek
         if cmd.lower().startswith("cd "):
             path = cmd[3:].strip().replace('"', '')
             try:
@@ -168,10 +185,9 @@ class AccessibleGitTerminal(QWidget):
             self.output.appendPlainText(f"Výjimka: {e}")
             threading.Thread(target=self.speak, args=(str(e),), daemon=True).start()
 
-    # ---- HISTORIE ----
+    # ---- HISTORIE A TAB ----
     def custom_keypress(self, event):
         key = event.key()
-        from PyQt6.QtCore import Qt
         if key == Qt.Key.Key_Up:
             if self.history and self.history_index > 0:
                 self.history_index -= 1
@@ -183,6 +199,18 @@ class AccessibleGitTerminal(QWidget):
             else:
                 self.history_index = len(self.history)
                 self.input.clear()
+        elif key == Qt.Key.Key_Tab:
+            text = self.input.text()
+            if text.lower().startswith("cd "):
+                partial = text[3:].strip()
+                # pokud je prázdné, použij aktuální adresář
+                dir_to_search = partial if partial else os.getcwd()
+                try:
+                    dirs = [d for d in os.listdir(dir_to_search) if os.path.isdir(os.path.join(dir_to_search, d))]
+                    if dirs:
+                        self.input.setText(f"cd {dirs[0]}")
+                except:
+                    pass
         else:
             QLineEdit.keyPressEvent(self.input, event)
 
