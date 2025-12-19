@@ -17,6 +17,9 @@ class FriendlyTerminal(QWidget):
         self.setWindowTitle("Přístupný a lidský terminál")
         self.resize(700, 500)
 
+        # Jazyk TTS – MUSÍ být před speak!
+        self.tts_lang = "cs"
+
         # Layout a widgety
         self.layout = QVBoxLayout()
         self.output = QPlainTextEdit()
@@ -41,9 +44,6 @@ class FriendlyTerminal(QWidget):
         # Startovní adresář
         self.output.appendPlainText(f"Čau! Jsem tvůj přístupný terminál. Začínáme v: {os.getcwd()}")
         threading.Thread(target=self.speak, args=(f"Čau! Jsem tvůj přístupný terminál. Začínáme v: {os.getcwd()}",), daemon=True).start()
-
-        # Jazyk TTS
-        self.tts_lang = "cs"
 
         # Načíst téma z configu
         self.load_theme()
