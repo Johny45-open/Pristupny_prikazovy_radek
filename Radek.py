@@ -11,6 +11,15 @@ import pygame
 
 CONFIG_FILE = "terminal_config.json"
 
+def safe_thread(target, *args):
+    """Spustí thread a nikdy nenechá spadnout GUI."""
+    def wrapper():
+        try:
+            target(*args)
+        except Exception as e:
+            print(f"CHYBA VE THREADU: {e}")
+    threading.Thread(target=wrapper, daemon=True).start()
+
 class FriendlyTerminal(QWidget):
     def __init__(self):
         super().__init__()
@@ -32,18 +41,18 @@ class FriendlyTerminal(QWidget):
         self.layout.addWidget(self.input)
         self.setLayout(self.layout)
 
-        # Hlas
+        # Hlas a historie
         pygame.mixer.init()
         self.history = []
         self.history_index = -1
         self.input.keyPressEvent = self.custom_keypress
 
-        # Jazyk TTS – nastavujeme hned na začátku
+        # Jazyk TTS
         self.tts_lang = "cs"
 
         # Startovní adresář
         self.output.appendPlainText(f"Čau! Jsem tvůj přístupný terminál. Začínáme v: {os.getcwd()}")
-        threading.Thread(target=self.speak, args=(f"Čau! Jsem tvůj přístupný terminál. Začínáme v: {os.getcwd()}",), daemon=True).start()
+        safe_thread(self.speak, f"Čau! Jsem tvůj přístupný terminál. Začínáme v: {os.getcwd()}")
 
         # Načíst téma z configu
         self.load_theme()
@@ -73,12 +82,11 @@ class FriendlyTerminal(QWidget):
         self.toggle_btn.setText("Tmavý režim")
 
     def toggle_theme(self):
+        self.dark_mode = not self.dark_mode
         if self.dark_mode:
-            self.dark_mode = False
-            self.apply_light_theme()
-        else:
-            self.dark_mode = True
             self.apply_dark_theme()
+        else:
+            self.apply_light_theme()
         self.save_theme()
 
     def save_theme(self):
@@ -92,17 +100,15 @@ class FriendlyTerminal(QWidget):
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     theme = data.get("theme", "light")
-                    if theme == "dark":
-                        self.dark_mode = True
-                        self.apply_dark_theme()
-                    else:
-                        self.dark_mode = False
-                        self.apply_light_theme()
+                    self.dark_mode = (theme == "dark")
             except:
                 self.dark_mode = False
-                self.apply_light_theme()
         else:
             self.dark_mode = False
+
+        if self.dark_mode:
+            self.apply_dark_theme()
+        else:
             self.apply_light_theme()
 
     # ---- HLAS ----
@@ -125,31 +131,27 @@ class FriendlyTerminal(QWidget):
         if not cmd:
             return
 
-        # Přátelské reakce na pozdravy
         if cmd.lower() in ["ahoj", "čau"]:
             self.output.appendPlainText("Ahoj kámo! 😎 Jak se máš?")
-            threading.Thread(target=self.speak, args=("Ahoj kámo! Jak se máš?",), daemon=True).start()
+            safe_thread(self.speak, "Ahoj kámo! Jak se máš?")
             self.input.clear()
             return
 
-        # Přepnutí jazyka TTS
         if cmd.lower().startswith("lang "):
-            new_lang = cmd[5:].strip()
-            self.tts_lang = new_lang
+            self.tts_lang = cmd[5:].strip()
             self.output.appendPlainText(f"Jazyk TTS nastaven na: {self.tts_lang}")
             self.input.clear()
             return
 
-        # cd + doplňování složek
         if cmd.lower().startswith("cd "):
             path = cmd[3:].strip().replace('"', '')
             try:
                 os.chdir(path)
                 self.output.appendPlainText(f"Super! Nový aktuální adresář: {os.getcwd()}")
-                threading.Thread(target=self.speak, args=(f"Nový aktuální adresář: {os.getcwd()}",), daemon=True).start()
+                safe_thread(self.speak, f"Nový aktuální adresář: {os.getcwd()}")
             except Exception as e:
                 self.output.appendPlainText(f"Ups, složku jsem nenašel 😅 {e}")
-                threading.Thread(target=self.speak, args=(f"Ups, složku jsem nenašel. {e}",), daemon=True).start()
+                safe_thread(self.speak, f"Ups, složku jsem nenašel. {e}")
             self.input.clear()
             return
 
@@ -160,50 +162,56 @@ class FriendlyTerminal(QWidget):
 
         if cmd.lower() == "exit":
             self.output.appendPlainText("Ukončuji terminál… měj se fajn! 👋")
-            threading.Thread(target=self.speak, args=("Ukončuji terminál, měj se fajn!",), daemon=True).start()
+            safe_thread(self.speak, "Ukončuji terminál, měj se fajn!")
             QApplication.quit()
             return
 
-        threading.Thread(target=self.execute_async, args=(cmd,), daemon=True).start()
+        safe_thread(self.execute_async, cmd)
 
     # ---- ASYNCHRONNÍ SPUŠTĚNÍ PŘÍKAZŮ ----
     def execute_async(self, cmd):
         try:
+            # git commit kontrola - musí mít -m
+            if cmd.startswith("git commit") and "-m" not in cmd:
+                self.output.appendPlainText("Git commit potřebuje -m \"message\". Např.: git commit -m \"Popis změn\"")
+                safe_thread(self.speak, "Git commit potřebuje zprávu s -m")
+                return
+
             process = subprocess.Popen(
                 cmd,
                 shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                encoding='cp1250',  # pro češtinu na Windows
-                errors='replace'    # nahrazení neznámých znaků znakem �
+                encoding='utf-8',
+                errors='replace'
             )
             stdout, stderr = process.communicate()
 
             if stdout:
                 self.output.appendPlainText(stdout)
-                threading.Thread(target=self.speak, args=(stdout,), daemon=True).start()
+                safe_thread(self.speak, stdout)
 
             if stderr:
                 for line in stderr.splitlines():
                     if "fatal" in line.lower() or "error" in line.lower():
                         self.output.appendPlainText(f"CHYBA: {line}")
-                        threading.Thread(target=self.speak, args=(f"CHYBA: {line}",), daemon=True).start()
+                        safe_thread(self.speak, f"CHYBA: {line}")
                     else:
                         self.output.appendPlainText(line)
-                        threading.Thread(target=self.speak, args=(line,), daemon=True).start()
+                        safe_thread(self.speak, line)
 
             # Přátelská zpráva při Git commit/push
             if cmd.startswith("git commit"):
                 self.output.appendPlainText("Skvěle! Commit proběhl v pořádku 💪")
-                threading.Thread(target=self.speak, args=("Commit proběhl v pořádku!",), daemon=True).start()
+                safe_thread(self.speak, "Commit proběhl v pořádku!")
             if cmd.startswith("git push"):
                 self.output.appendPlainText("Push probíhá… držíme palce! 🤞")
-                threading.Thread(target=self.speak, args=("Push probíhá, držíme palce!",), daemon=True).start()
+                safe_thread(self.speak, "Push probíhá, držíme palce!")
 
         except Exception as e:
             self.output.appendPlainText(f"Výjimka: {e}")
-            threading.Thread(target=self.speak, args=(str(e),), daemon=True).start()
+            safe_thread(self.speak, str(e))
 
     # ---- HISTORIE A TAB ----
     def custom_keypress(self, event):
@@ -227,22 +235,17 @@ class FriendlyTerminal(QWidget):
                 partial = text[3:].strip()
                 dir_to_search = os.path.dirname(partial) if os.path.dirname(partial) else os.getcwd()
                 prefix = os.path.basename(partial)
-
                 try:
                     all_dirs = [d for d in os.listdir(dir_to_search) if os.path.isdir(os.path.join(dir_to_search, d))]
                     matching_dirs = [d for d in all_dirs if d.startswith(prefix)]
                     if matching_dirs:
                         if getattr(self, 'last_tab_text', '') != partial:
                             self.tab_index = 0
-
                         if modifiers & Qt.KeyboardModifier.ShiftModifier:
                             self.tab_index = (self.tab_index - 1) % len(matching_dirs)
-
                         self.input.setText(f"cd {os.path.join(dir_to_search, matching_dirs[self.tab_index])}")
-
                         if not (modifiers & Qt.KeyboardModifier.ShiftModifier):
                             self.tab_index = (self.tab_index + 1) % len(matching_dirs)
-
                         self.last_tab_text = partial
                 except:
                     pass
