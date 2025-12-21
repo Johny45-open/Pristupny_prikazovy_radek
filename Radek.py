@@ -114,7 +114,11 @@ class FriendlyTerminal(QWidget):
     # ---- HLAS ----
     def speak(self, text):
         try:
-            tts = gTTS(text=text, lang=self.tts_lang)
+            # Filtrovat znaky, které TTS neumí
+            safe_text = ''.join([c if 32 <= ord(c) <= 126 or ord(c) > 160 else ' ' for c in text])
+            if not safe_text.strip():
+                return
+            tts = gTTS(text=safe_text, lang=self.tts_lang)
             fp = io.BytesIO()
             tts.write_to_fp(fp)
             fp.seek(0)
@@ -171,7 +175,6 @@ class FriendlyTerminal(QWidget):
     # ---- ASYNCHRONNÍ SPUŠTĚNÍ PŘÍKAZŮ ----
     def execute_async(self, cmd):
         try:
-            # git commit kontrola - musí mít -m
             if cmd.startswith("git commit") and "-m" not in cmd:
                 self.output.appendPlainText("Git commit potřebuje -m \"message\". Např.: git commit -m \"Popis změn\"")
                 safe_thread(self.speak, "Git commit potřebuje zprávu s -m")
@@ -201,7 +204,6 @@ class FriendlyTerminal(QWidget):
                         self.output.appendPlainText(line)
                         safe_thread(self.speak, line)
 
-            # Přátelská zpráva při Git commit/push
             if cmd.startswith("git commit"):
                 self.output.appendPlainText("Skvěle! Commit proběhl v pořádku 💪")
                 safe_thread(self.speak, "Commit proběhl v pořádku!")
