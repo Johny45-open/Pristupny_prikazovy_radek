@@ -175,13 +175,18 @@ class FriendlyTerminal(QWidget):
     # ---- ASYNCHRONNÍ SPUŠTĚNÍ PŘÍKAZŮ ----
     def execute_async(self, cmd):
         try:
-            # git commit musí mít -m
+            # Git commit kontrola - musí mít -m
             if cmd.startswith("git commit") and "-m" not in cmd:
                 self.output.appendPlainText(
                     'Git commit potřebuje -m "message". Např.: git commit -m "Popis změn"'
                 )
                 safe_thread(self.speak, "Git commit potřebuje zprávu s -m")
                 return
+
+            # Git push hlášení před spuštěním
+            if cmd.startswith("git push"):
+                self.output.appendPlainText("Push probíhá… čekej chvíli 🤞")
+                safe_thread(self.speak, "Push probíhá… čekej chvíli")
 
             process = subprocess.Popen(
                 cmd,
@@ -198,7 +203,6 @@ class FriendlyTerminal(QWidget):
                 self.output.appendPlainText(stdout)
                 safe_thread(self.speak, stdout)
 
-            # Úprava: stderr se zpracovává jen na skutečné chyby
             if stderr:
                 for line in stderr.splitlines():
                     low = line.lower()
@@ -206,11 +210,10 @@ class FriendlyTerminal(QWidget):
                         self.output.appendPlainText(f"CHYBA: {line}")
                         safe_thread(self.speak, f"CHYBA: {line}")
                     else:
-                        # normální info z Git push/commit
                         self.output.appendPlainText(line)
                         safe_thread(self.speak, line)
 
-            # Přátelská zpráva při Git commit/push
+            # Přátelské zprávy po Gitu
             if cmd.startswith("git commit"):
                 self.output.appendPlainText("Skvěle! Commit proběhl v pořádku 💪")
                 safe_thread(self.speak, "Commit proběhl v pořádku!")
