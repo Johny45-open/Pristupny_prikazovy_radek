@@ -82,7 +82,7 @@ class FriendlyTerminal(QWidget):
         self.toggle_btn.setText("Tmavý režim")
 
     def toggle_theme(self):
-        self.dark_mode = not self.dark_mode
+        self.dark_mode = not getattr(self, 'dark_mode', False)
         if self.dark_mode:
             self.apply_dark_theme()
         else:
@@ -90,7 +90,7 @@ class FriendlyTerminal(QWidget):
         self.save_theme()
 
     def save_theme(self):
-        data = {"theme": "dark" if self.dark_mode else "light"}
+        data = {"theme": "dark" if getattr(self, 'dark_mode', False) else "light"}
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -175,10 +175,22 @@ class FriendlyTerminal(QWidget):
     # ---- ASYNCHRONNÍ SPUŠTĚNÍ PŘÍKAZŮ ----
     def execute_async(self, cmd):
         try:
-            if cmd.startswith("git commit") and "-m" not in cmd:
-                self.output.appendPlainText("Git commit potřebuje -m \"message\". Např.: git commit -m \"Popis změn\"")
-                safe_thread(self.speak, "Git commit potřebuje zprávu s -m")
-                return
+            # Kontrola git commit
+            if cmd.startswith("git commit"):
+                if "-m" not in cmd:
+                    self.output.appendPlainText(
+                        "Git commit potřebuje -m \"message\". Např.: git commit -m \"Popis změn\""
+                    )
+                    safe_thread(self.speak, "Git commit potřebuje zprávu s -m")
+                    return
+                # Ověření, že message není prázdná
+                parts = cmd.split("-m")
+                if len(parts) > 1 and not parts[1].strip().strip('"'):
+                    self.output.appendPlainText(
+                        "Git commit nemůže mít prázdnou zprávu!"
+                    )
+                    safe_thread(self.speak, "Git commit nemůže mít prázdnou zprávu")
+                    return
 
             process = subprocess.Popen(
                 cmd,
