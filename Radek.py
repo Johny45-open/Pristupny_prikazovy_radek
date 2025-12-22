@@ -82,7 +82,7 @@ class FriendlyTerminal(QWidget):
         self.toggle_btn.setText("Tmavý režim")
 
     def toggle_theme(self):
-        self.dark_mode = not getattr(self, 'dark_mode', False)
+        self.dark_mode = not self.dark_mode
         if self.dark_mode:
             self.apply_dark_theme()
         else:
@@ -90,7 +90,7 @@ class FriendlyTerminal(QWidget):
         self.save_theme()
 
     def save_theme(self):
-        data = {"theme": "dark" if getattr(self, 'dark_mode', False) else "light"}
+        data = {"theme": "dark" if self.dark_mode else "light"}
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -175,7 +175,7 @@ class FriendlyTerminal(QWidget):
     # ---- ASYNCHRONNÍ SPUŠTĚNÍ PŘÍKAZŮ ----
     def execute_async(self, cmd):
         try:
-            # Kontrola git commit
+            # Git commit kontrola
             if cmd.startswith("git commit"):
                 if "-m" not in cmd:
                     self.output.appendPlainText(
@@ -183,15 +183,40 @@ class FriendlyTerminal(QWidget):
                     )
                     safe_thread(self.speak, "Git commit potřebuje zprávu s -m")
                     return
-                # Ověření, že message není prázdná
                 parts = cmd.split("-m")
                 if len(parts) > 1 and not parts[1].strip().strip('"'):
-                    self.output.appendPlainText(
-                        "Git commit nemůže mít prázdnou zprávu!"
-                    )
+                    self.output.appendPlainText("Git commit nemůže mít prázdnou zprávu!")
                     safe_thread(self.speak, "Git commit nemůže mít prázdnou zprávu")
                     return
 
+            # Git push: postupné čtení výstupu
+            if cmd.startswith("git push"):
+                self.output.appendPlainText("Push probíhá… čekej chvíli 🤞")
+                safe_thread(self.speak, "Push probíhá, čekej chvíli")
+                process = subprocess.Popen(
+                    cmd,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace'
+                )
+                for line in process.stdout:
+                    line = line.strip()
+                    if line:
+                        self.output.appendPlainText(line)
+                        safe_thread(self.speak, line)
+                for line in process.stderr:
+                    line = line.strip()
+                    if line:
+                        self.output.appendPlainText(f"CHYBA: {line}")
+                        safe_thread(self.speak, f"CHYBA: {line}")
+                self.output.appendPlainText("Push dokončen! 💪")
+                safe_thread(self.speak, "Push dokončen!")
+                return
+
+            # Ostatní příkazy
             process = subprocess.Popen(
                 cmd,
                 shell=True,
@@ -219,9 +244,6 @@ class FriendlyTerminal(QWidget):
             if cmd.startswith("git commit"):
                 self.output.appendPlainText("Skvěle! Commit proběhl v pořádku 💪")
                 safe_thread(self.speak, "Commit proběhl v pořádku!")
-            if cmd.startswith("git push"):
-                self.output.appendPlainText("Push probíhá… držíme palce! 🤞")
-                safe_thread(self.speak, "Push probíhá, držíme palce!")
 
         except Exception as e:
             self.output.appendPlainText(f"Výjimka: {e}")
