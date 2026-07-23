@@ -2,12 +2,17 @@ from __future__ import annotations
 
 
 class CommandHistory:
-    def __init__(self):
+    def __init__(self, maxlen: int = 100):
         self._items: list[str] = []
         self._index = -1
+        self._maxlen = maxlen
 
     def add(self, cmd: str) -> None:
         self._items.append(cmd)
+        while len(self._items) > self._maxlen:
+            self._items.pop(0)
+            if self._index > 0:
+                self._index -= 1
         self._index = len(self._items)
 
     def back(self) -> str | None:
