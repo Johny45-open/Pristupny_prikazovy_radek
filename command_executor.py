@@ -1,3 +1,4 @@
+import re
 import subprocess
 import threading
 
@@ -21,8 +22,33 @@ class CommandExecutor:
     def execute(self, cmd: str) -> None:
         threading.Thread(target=self._run, args=(cmd,), daemon=True).start()
 
+    @staticmethod
+    def _semicolon_to_ampersand(cmd: str) -> str:
+        result = []
+        in_quotes = False
+        quote_char = None
+        for ch in cmd:
+            if ch in ('"', "'"):
+                if not in_quotes:
+                    in_quotes = True
+                    quote_char = ch
+                elif ch == quote_char:
+                    in_quotes = False
+                    quote_char = None
+                result.append(ch)
+            elif ch == ";" and not in_quotes:
+                result.append("&")
+            else:
+                result.append(ch)
+        return "".join(result)
+
     def _run(self, cmd: str) -> None:
         try:
+            fixed = self._semicolon_to_ampersand(cmd)
+            if fixed != cmd:
+                self._output("Pozor: středník ; byl nahrazen & pro cmd.exe.")
+            cmd = fixed
+
             if not self._pre_hooks(cmd):
                 return
 
@@ -51,7 +77,7 @@ class CommandExecutor:
                         self._output(line)
                         self._speak(line)
 
-            self._post_hooks(cmd)
+            self._post_hooks(cmd, proc.returncode)
 
         except Exception as e:
             self._output(f"Výjimka: {e}")
@@ -70,9 +96,20 @@ class CommandExecutor:
         if self._is_flutter(cmd):
             self._speak(self._flutter_pre(cmd))
 
+        if re.search(r'<[^>]+>', cmd):
+            self._output(
+                "Pozor: příkaz obsahuje znaky < >, "
+                "které shell používá pro přesměrování souborů. "
+                "Pokud to není záměr, zkus příkaz zapsat jinak."
+            )
+
         return True
 
-    def _post_hooks(self, cmd: str) -> None:
+    def _post_hooks(self, cmd: str, returncode: int) -> None:
+        if returncode != 0:
+            self._speak(f"Příkaz skončil s chybou číslo {returncode}")
+            return
+
         if cmd.startswith("git commit"):
             self._output("Skvěle! Commit proběhl v pořádku 💪")
             self._speak("Commit proběhl v pořádku!")

@@ -1,5 +1,6 @@
 import os
 import re
+import subprocess
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit, QPushButton
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -115,10 +116,40 @@ class FriendlyTerminal(QWidget):
 
     def _show_greeting(self):
         greeting = self.config.get("greeting", "")
+        has_cmd = "{cmd" in greeting
         if not greeting:
-            greeting = f"Čau! Jsem tvůj přístupný terminál. Začínáme v: {os.getcwd()}"
+            greeting = f"Čau! Jsem tvůj přístupný terminál."
+        greeting = self._expand_greeting_commands(greeting)
         self._output(greeting)
         self._speak(greeting)
+        if not has_cmd:
+            self._announce_location()
+
+    def _expand_greeting_commands(self, text: str) -> str:
+        def replace(m):
+            cmd = m.group(1)
+            if cmd is None:
+                return os.getcwd()
+            cmd = cmd.strip()
+            if not cmd:
+                return os.getcwd()
+            try:
+                proc = subprocess.Popen(
+                    cmd, shell=True, stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL, text=True,
+                    encoding="utf-8", errors="replace",
+                )
+                out, _ = proc.communicate(timeout=5)
+                return out.strip()
+            except Exception:
+                return f"[chyba: {cmd}]"
+
+        return re.sub(r"\{cmd(?:\s+(.+?))?\}", replace, text)
+
+    def _announce_location(self):
+        msg = f"Nacházíš se v: {os.getcwd()}"
+        self._output(msg)
+        self._speak(msg)
 
     def _show_help(self):
         lines = [
@@ -139,7 +170,10 @@ class FriendlyTerminal(QWidget):
             "  greeting <text>      – vlastní uvítání",
             "  alias <z> <příkaz>   – zkratka pro příkaz",
             "",
-            "Aliasy:",
+            "V uvítání můžeš použít {cmd příkaz}:",
+            "  greeting Vítej v {cmd cd && echo %cd%}",
+            "  greeting Dnes je {cmd echo %date%}",
+            "",
             "  set alias g git    – pak stačí napsat g místo git",
             "  set alias f flutter – pak stačí napsat f místo flutter",
             "  set alias g        – smaže alias g",
@@ -150,7 +184,10 @@ class FriendlyTerminal(QWidget):
         self._output("\n".join(lines))
         self._speak(
             "Zobrazuji nápovědu. K dispozici jsou příkazy: ahoj, cd, set, exit a help. "
-            "Všechna nastavení se mění přes set. Cokoliv jiného jde do příkazové řádky."
+            "Všechna nastavení se mění přes set. "
+            "V uvítání můžeš použít složený cmd příkaz, třeba: cmd echo datum. "
+            "Aktuální adresář se vždy oznamuje automaticky. "
+            "Cokoliv jiného jde do příkazové řádky."
         )
 
     # ---------- output helpers ----------
@@ -213,6 +250,11 @@ class FriendlyTerminal(QWidget):
 
         if cmd.lower().startswith("set "):
             self._handle_set(cmd[4:].strip())
+            self.input.clear()
+            return
+
+        if cmd.lower().startswith("greeting "):
+            self._handle_set(f"greeting {cmd[9:].strip()}")
             self.input.clear()
             return
 
@@ -364,7 +406,7 @@ class FriendlyTerminal(QWidget):
             msg = "Uvítací zpráva vrácena na výchozí."
         else:
             self.config["greeting"] = value
-            msg = "Uvítací zpráva nastavena."
+            msg = f"Uvítací zpráva nastavena. V textu můžeš použít složený příkaz cmd."
         self._output(msg)
         self._speak(msg)
 

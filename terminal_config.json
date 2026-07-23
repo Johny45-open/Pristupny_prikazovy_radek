@@ -1,3 +1,16 @@
 {
-  "theme": "dark"
+  "theme": "dark",
+  "font_size": 12,
+  "font_family": "Consolas",
+  "voice_enabled": true,
+  "emoji_enabled": true,
+  "greeting": "Čus kámo. Nyní bysme měli bejt v {cmd}",
+  "history_limit": 100,
+  "aliases": {},
+  "window_geometry": {
+    "x": 797,
+    "y": 206,
+    "w": 700,
+    "h": 500
+  }
 }
