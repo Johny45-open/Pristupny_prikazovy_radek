@@ -1,0 +1,5 @@
+PyQt6==6.11.0
+accessible-output2==0.17
+# legacy – Radek.py puvodne pouzival gTTS+pygame, nyni neni potreba pro hlavni aplikaci
+# gTTS==2.5.4
+# pygame==2.6.1
